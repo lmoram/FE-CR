@@ -134,7 +134,8 @@ class AccountInvoiceElectronic(models.Model):
     )
     payment_methods_id = fields.Many2one(
         comodel_name="payment.methods",
-        string="Payment methods"
+        string="Payment methods",
+        default=4
     )
     invoice_id = fields.Many2one(
         comodel_name="account.move",
@@ -155,7 +156,15 @@ class AccountInvoiceElectronic(models.Model):
     )
 
     # === Amount fields === #
-
+    amount_discount_electronic_invoice = fields.Monetary(
+        string='Discount Amount',
+        compute='_compute_amount_discount_electronic_invoice',
+        readonly=True,
+        store=True,
+        currency_field='currency_id',
+        default=0.0,
+        help="Total amount of discounts applied to this invoice"
+    )
     amount_tax_electronic_invoice = fields.Monetary(
         string='Total FE taxes',
         readonly=True
@@ -271,6 +280,20 @@ class AccountInvoiceElectronic(models.Model):
                     body=error_msg
                 )
 
+    @api.depends('invoice_line_ids.discount', 'invoice_line_ids.price_unit', 'invoice_line_ids.quantity')
+    def _compute_amount_discount_electronic_invoice(self):
+        for move in self:
+            total_discount = 0.0
+            for line in move.invoice_line_ids:
+                if line.discount and line.discount > 0:
+                    # Calcula el descuento por línea
+                    # (precio unitario * cantidad) * (descuento %)
+                    discount_amount_line = (line.price_unit * line.quantity) * (line.discount / 100.0)
+                    total_discount += discount_amount_line
+            
+            move.amount_discount_electronic_invoice = float(total_discount)
+            
+            
     # -------------------------------------------------------------------------
     # COMPUTE METHODS
     # -------------------------------------------------------------------------
@@ -1625,6 +1648,7 @@ class AccountInvoiceElectronic(models.Model):
 
     def action_post(self):
         # Revisamos si el ambiente para Hacienda está habilitado
+        self._compute_amount_discount_electronic_invoice()
         for inv in self:
             if inv.company_id.frm_ws_ambiente == 'disabled':
                 super().action_post()
